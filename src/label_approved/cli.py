@@ -81,6 +81,14 @@ class GraphQL:
         timelineItems(first: 100) {
           nodes {
             __typename
+            ... on LabeledEvent {
+              actor {
+                login
+              }
+              label {
+                name
+              }
+            }
             ... on ReviewRequestedEvent {
               actor {
                 login
@@ -285,6 +293,17 @@ class PrWithGraphQL:
     def get_labels(self) -> set[str]:
         return {label["node"]["name"] for label in self.metadata["labels"]["edges"]}
 
+    def get_approval_labelers(self) -> set[str]:
+        approval_labelers: set[str] = set()
+        for event in self.metadata["timelineItems"]["nodes"]:
+            if event["__typename"] != "LabeledEvent":
+                continue
+            if event["label"]["name"] not in label_dict.values():
+                continue
+            approval_labeler = event["actor"]["login"] if event["actor"] else "ghost"
+            approval_labelers.add(approval_labeler)
+        return approval_labelers
+
     def add_labels(self, labels: set[str]) -> None:
         if not labels:
             return
@@ -313,6 +332,11 @@ def process_pr(g_h: Github, p_r_object: PrWithGraphQL) -> None:
     logging.info("Processing %s", p_r_object.get_number())
 
     logging.debug(p_r_object)
+
+    approval_labelers = p_r_object.get_approval_labelers()
+    if "github-actions" in approval_labelers:
+        # the approval labels are already managed by workflows; no need to update them
+        return
 
     p_r_reviews = p_r_object.get_reviews()
 
